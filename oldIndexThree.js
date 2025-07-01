@@ -13,34 +13,15 @@ app.use(bodyParser.json());
 const pushTokens = {};
 
 // Endpoint to save push tokens
-// app.post('/api/save-push-token', (req, res) => {
-//   const { token, userId } = req.body;
-
-//   if (!token || !userId) {
-//     return res.status(400).json({ error: 'Token and userId are required' });
-//   }
-
-//   pushTokens[userId] = token;
-//   console.log(`Saved push token for user ${userId}`);
-//   res.json({ success: true });
-// });
-
-// Update your save-push-token endpoint
 app.post('/api/save-push-token', (req, res) => {
-  const { token, userId, isProduction = false } = req.body; // Add production flag
+  const { token, userId } = req.body;
 
   if (!token || !userId) {
     return res.status(400).json({ error: 'Token and userId are required' });
   }
 
-  // Store additional token info
-  pushTokens[userId] = {
-    token,
-    isProduction,
-    lastUpdated: new Date()
-  };
-
-  console.log(`Saved ${isProduction ? 'production' : 'development'} token for ${userId}`);
+  pushTokens[userId] = token;
+  console.log(`Saved push token for user ${userId}`);
   res.json({ success: true });
 });
 
@@ -174,41 +155,58 @@ async function getAllDietitianTokens() {
 app.post('/api/send-notification', async (req, res) => {
   const { recipientId, title, body, data } = req.body;
 
+  console.log('Notification request:', { recipientId, title, body });
+
   try {
     let tokens = [];
 
+    // Handle different recipient types
     if (recipientId === 'all-dietitians') {
-      tokens = Object.values(pushTokens)
-        .filter(t => !t.isProduction) // Match client environment
-        .map(t => t.token);
+      tokens = await getAllDietitianTokens();
     } else {
-      const tokenData = pushTokens[recipientId];
-      if (tokenData) tokens.push(tokenData.token);
+      const token = pushTokens[recipientId];
+      if (token) tokens.push(token);
     }
 
-    const messages = tokens
-      .filter(token => Expo.isExpoPushToken(token))
-      .map(token => ({
-        to: token,
-        sound: 'default',
-        title,
-        body,
-        data
-      }));
+    // Filter valid tokens
+    const validTokens = tokens.filter(token => {
+      const isValid = Expo.isExpoPushToken(token);
+      if (!isValid) console.log('Invalid token:', token);
+      return isValid;
+    });
+
+    if (validTokens.length === 0) {
+      return res.status(404).json({ error: 'No valid recipients found' });
+    }
 
     // Send notifications
+    const messages = validTokens.map(token => ({
+      to: token,
+      sound: 'default',
+      title,
+      body,
+      data,
+      priority: 'high'
+    }));
+
     const chunks = expo.chunkPushNotifications(messages);
-    const tickets = [];
+    let tickets = [];
 
     for (const chunk of chunks) {
       try {
-        tickets.push(...await expo.sendPushNotificationsAsync(chunk));
+        const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+        tickets = tickets.concat(ticketChunk);
       } catch (error) {
         console.error('Error sending chunk:', error);
       }
     }
 
-    res.json({ success: true, sentCount: tickets.length });
+    res.json({
+      success: true,
+      sentTo: validTokens.length,
+      tickets
+    });
+
   } catch (error) {
     console.error('Notification error:', error);
     res.status(500).json({ error: 'Failed to send notifications' });

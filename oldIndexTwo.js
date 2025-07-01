@@ -13,34 +13,15 @@ app.use(bodyParser.json());
 const pushTokens = {};
 
 // Endpoint to save push tokens
-// app.post('/api/save-push-token', (req, res) => {
-//   const { token, userId } = req.body;
-
-//   if (!token || !userId) {
-//     return res.status(400).json({ error: 'Token and userId are required' });
-//   }
-
-//   pushTokens[userId] = token;
-//   console.log(`Saved push token for user ${userId}`);
-//   res.json({ success: true });
-// });
-
-// Update your save-push-token endpoint
 app.post('/api/save-push-token', (req, res) => {
-  const { token, userId, isProduction = false } = req.body; // Add production flag
+  const { token, userId } = req.body;
 
   if (!token || !userId) {
     return res.status(400).json({ error: 'Token and userId are required' });
   }
 
-  // Store additional token info
-  pushTokens[userId] = {
-    token,
-    isProduction,
-    lastUpdated: new Date()
-  };
-
-  console.log(`Saved ${isProduction ? 'production' : 'development'} token for ${userId}`);
+  pushTokens[userId] = token;
+  console.log(`Saved push token for user ${userId}`);
   res.json({ success: true });
 });
 
@@ -101,116 +82,72 @@ async function getAllDietitianTokens() {
 
 
 // Then modify your send-notification endpoint
-// app.post('/api/send-notification', async (req, res) => {
-//   const { recipientId, title, body, data } = req.body;
-
-//   console.log('Received notification request:', { recipientId, title, body }); // Debug log
-
-//   if (!recipientId || !title || !body) {
-//     return res.status(400).json({ error: 'recipientId, title and body are required' });
-//   }
-
-//   try {
-//     let tokens = [];
-
-//     // Special case for notifying all dietitians
-//     if (recipientId === 'all-dietitians') {
-//       tokens = await getAllDietitianTokens();
-//       console.log(`Sending to all dietitians, found ${tokens.length} tokens`);
-//     }
-//     // Special case for notifying a single dietitian
-//     else if (recipientId.startsWith('dietitian-')) {
-//       const token = pushTokens[recipientId];
-//       if (token) tokens.push(token);
-//     }
-//     // Normal user case
-//     else {
-//       const token = pushTokens[recipientId];
-//       if (token) tokens.push(token);
-//     }
-
-//     if (tokens.length === 0) {
-//       console.error('No valid tokens found for recipient:', recipientId);
-//       return res.status(404).json({ error: 'No valid recipients found' });
-//     }
-
-//     // Filter valid Expo tokens
-//     const validTokens = tokens.filter(token => Expo.isExpoPushToken(token));
-//     console.log(`Sending to ${validTokens.length} valid tokens`);
-
-//     const messages = validTokens.map(token => ({
-//       to: token,
-//       sound: 'default',
-//       title,
-//       body,
-//       data,
-//     }));
-
-//     // Send in chunks
-//     const chunks = expo.chunkPushNotifications(messages);
-//     let tickets = [];
-
-//     for (const chunk of chunks) {
-//       try {
-//         const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-//         tickets = tickets.concat(ticketChunk);
-//         console.log('Sent chunk successfully');
-//       } catch (error) {
-//         console.error('Error sending chunk:', error);
-//       }
-//     }
-
-//     res.json({
-//       success: true,
-//       tickets,
-//       message: `Notification sent to ${validTokens.length} device(s)`
-//     });
-//   } catch (error) {
-//     console.error('Error in notification endpoint:', error);
-//     res.status(500).json({ error: 'Failed to send notifications' });
-//   }
-// });
-
 app.post('/api/send-notification', async (req, res) => {
   const { recipientId, title, body, data } = req.body;
+
+  console.log('Received notification request:', { recipientId, title, body }); // Debug log
+
+  if (!recipientId || !title || !body) {
+    return res.status(400).json({ error: 'recipientId, title and body are required' });
+  }
 
   try {
     let tokens = [];
 
+    // Special case for notifying all dietitians
     if (recipientId === 'all-dietitians') {
-      tokens = Object.values(pushTokens)
-        .filter(t => !t.isProduction) // Match client environment
-        .map(t => t.token);
-    } else {
-      const tokenData = pushTokens[recipientId];
-      if (tokenData) tokens.push(tokenData.token);
+      tokens = await getAllDietitianTokens();
+      console.log(`Sending to all dietitians, found ${tokens.length} tokens`);
+    }
+    // Special case for notifying a single dietitian
+    else if (recipientId.startsWith('dietitian-')) {
+      const token = pushTokens[recipientId];
+      if (token) tokens.push(token);
+    }
+    // Normal user case
+    else {
+      const token = pushTokens[recipientId];
+      if (token) tokens.push(token);
     }
 
-    const messages = tokens
-      .filter(token => Expo.isExpoPushToken(token))
-      .map(token => ({
-        to: token,
-        sound: 'default',
-        title,
-        body,
-        data
-      }));
+    if (tokens.length === 0) {
+      console.error('No valid tokens found for recipient:', recipientId);
+      return res.status(404).json({ error: 'No valid recipients found' });
+    }
 
-    // Send notifications
+    // Filter valid Expo tokens
+    const validTokens = tokens.filter(token => Expo.isExpoPushToken(token));
+    console.log(`Sending to ${validTokens.length} valid tokens`);
+
+    const messages = validTokens.map(token => ({
+      to: token,
+      sound: 'default',
+      title,
+      body,
+      data,
+    }));
+
+    // Send in chunks
     const chunks = expo.chunkPushNotifications(messages);
-    const tickets = [];
+    let tickets = [];
 
     for (const chunk of chunks) {
       try {
-        tickets.push(...await expo.sendPushNotificationsAsync(chunk));
+        const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+        tickets = tickets.concat(ticketChunk);
+        console.log('Sent chunk successfully');
       } catch (error) {
         console.error('Error sending chunk:', error);
       }
     }
 
-    res.json({ success: true, sentCount: tickets.length });
+    res.json({
+      success: true,
+      tickets,
+      message: `Notification sent to ${validTokens.length} device(s)`
+    });
   } catch (error) {
-    console.error('Notification error:', error);
+    console.error('Error in notification endpoint:', error);
     res.status(500).json({ error: 'Failed to send notifications' });
   }
 });
