@@ -171,50 +171,6 @@ async function getAllDietitianTokens() {
 //   }
 // });
 
-// app.post('/api/send-notification', async (req, res) => {
-//   const { recipientId, title, body, data } = req.body;
-
-//   try {
-//     let tokens = [];
-
-//     if (recipientId === 'all-dietitians') {
-//       tokens = Object.values(pushTokens)
-//         .filter(t => !t.isProduction) // Match client environment
-//         .map(t => t.token);
-//     } else {
-//       const tokenData = pushTokens[recipientId];
-//       if (tokenData) tokens.push(tokenData.token);
-//     }
-
-//     const messages = tokens
-//       .filter(token => Expo.isExpoPushToken(token))
-//       .map(token => ({
-//         to: token,
-//         sound: 'default',
-//         title,
-//         body,
-//         data
-//       }));
-
-//     // Send notifications
-//     const chunks = expo.chunkPushNotifications(messages);
-//     const tickets = [];
-
-//     for (const chunk of chunks) {
-//       try {
-//         tickets.push(...await expo.sendPushNotificationsAsync(chunk));
-//       } catch (error) {
-//         console.error('Error sending chunk:', error);
-//       }
-//     }
-
-//     res.json({ success: true, sentCount: tickets.length });
-//   } catch (error) {
-//     console.error('Notification error:', error);
-//     res.status(500).json({ error: 'Failed to send notifications' });
-//   }
-// });
-
 app.post('/api/send-notification', async (req, res) => {
   const { recipientId, title, body, data } = req.body;
 
@@ -222,20 +178,12 @@ app.post('/api/send-notification', async (req, res) => {
     let tokens = [];
 
     if (recipientId === 'all-dietitians') {
-      // Get all dietitian tokens that match the environment
-      tokens = Object.entries(pushTokens)
-        .filter(([userId, tokenData]) =>
-          userId.startsWith('dietitian-') && tokenData.isProduction === (process.env.NODE_ENV === 'production')
-        )
-        .map(([_, tokenData]) => tokenData.token);
+      tokens = Object.values(pushTokens)
+        .filter(t => !t.isProduction) // Match client environment
+        .map(t => t.token);
     } else {
       const tokenData = pushTokens[recipientId];
       if (tokenData) tokens.push(tokenData.token);
-    }
-
-    if (tokens.length === 0) {
-      console.log('No valid tokens found for recipient:', recipientId);
-      return res.json({ success: true, sentCount: 0 });
     }
 
     const messages = tokens
@@ -248,6 +196,7 @@ app.post('/api/send-notification', async (req, res) => {
         data
       }));
 
+    // Send notifications
     const chunks = expo.chunkPushNotifications(messages);
     const tickets = [];
 
